@@ -24,6 +24,7 @@ class CivisSource(base.DataSource):
         database,
         sql_expr=None,
         table=None,
+        geometry=None,
         api_key=None,
         civis_kwargs={},
         metadata={},
@@ -41,6 +42,8 @@ class CivisSource(base.DataSource):
         table: str
             The table name to pass to the database backend. Either this or
             sql_expr must be given.
+        geometry: str or list of str
+            A column or list of columns that should be interpreted as geometries.
         api_key: str
             An optional API key. If not given the env variable CIVIS_API_KEY
             will be used.
@@ -50,6 +53,7 @@ class CivisSource(base.DataSource):
         self._database = database
         self._table = table
         self._sql_expr = sql_expr
+        self._geom = [geometry] if isinstance(geometry, str) else geometry
         self._client = civis.APIClient(api_key)
         self._civis_kwargs = civis_kwargs
         self._dataframe = None
@@ -68,16 +72,31 @@ class CivisSource(base.DataSource):
         """
         Load the dataframe from Civis.
         """
+        # Load the data.
         if self._table:
-            self._dataframe = civis.io.read_civis(
-                self._table, self._database, **self._civis_kwargs,
-            )
+            df = civis.io.read_civis(self._table, self._database, **self._civis_kwargs,)
         elif self._sql_expr:
-            self._dataframe = civis.io.read_civis_sql(
+            df = civis.io.read_civis_sql(
                 self._sql_expr, self._database, **self._civis_kwargs,
             )
         else:
             raise Exception("Should not get here")
+
+        # If we have geometry columns, convert them with shapely
+        # and make the result a GeoDataFrame
+        if self._geom and len(self._geom):
+            import geopandas
+            import shapely
+
+            geom_cols = {
+                g: df[g].apply(lambda x: shapely.wkb.loads(x, hex=True))
+                for g in self._geom
+            }
+            self._dataframe = geopandas.GeoDataFrame(
+                df.assign(**geom_cols), geometry=self._geom[0],
+            )
+        else:
+            self._dataframe = df
 
     def _get_schema(self):
         """
@@ -138,7 +157,7 @@ class CivisCatalog(Catalog):
     version = __version__
 
     def __init__(
-        self, database, schema="public", api_key=None, civis_kwargs={}, **kwargs
+        self, database, schema="public", api_key=None, civis_kwargs={}, **kwargs,
     ):
         """
         Construct the Civis Catalog.

@@ -20,6 +20,7 @@ setup(
     package_dir={"intake-civis": "intake-civis"},
     include_package_data=True,
     install_requires=["civis", "intake"],
+    extras_require={"geospatial": ["geopandas", "shapely"]},
     entry_points={
         "intake.drivers": [
             "civis = intake_civis.driver:CivisSource",
