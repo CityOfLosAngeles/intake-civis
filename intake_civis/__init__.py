@@ -1,6 +1,6 @@
 import intake  # noqa: F401
 
 from ._version import __version__
-from .driver import CivisSource
+from .driver import CivisCatalog, CivisSource
 
-__all__ = ["CivisSource", "__version__"]
+__all__ = ["CivisCatalog", "CivisSource", "__version__"]

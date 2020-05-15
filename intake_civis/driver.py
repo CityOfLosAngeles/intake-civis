@@ -2,9 +2,11 @@
 Intake driver for a table in Civis.
 """
 import civis
+from intake.catalog.base import Catalog
+from intake.catalog.local import LocalCatalogEntry
 from intake.source import base
 
-from . import __version__
+from ._version import __version__
 
 
 class CivisSource(base.DataSource):
@@ -34,7 +36,16 @@ class CivisSource(base.DataSource):
         database: str
             The name of the database in the platform.
         sql_expr: str
-            The table name or SQL expression to pass to the database backend.
+            The SQL expression to pass to the database backend. Either this
+            or table must be given.
+        table: str
+            The table name to pass to the database backend. Either this or
+            sql_expr must be given.
+        api_key: str
+            An optional API key. If not given the env variable CIVIS_API_KEY
+            will be used.
+        civis_kwargs: dict
+            Optional kwargs to pass to the civis.io functions.
         """
         self._database = database
         self._table = table
@@ -113,3 +124,73 @@ class CivisSource(base.DataSource):
 
     def _close(self):
         self._dataframe = None
+
+
+class CivisCatalog(Catalog):
+    """
+    Makes data sources out of known tables in a Civis database.
+
+    This queries the database for tables (optionally in a given schema)
+    and constructs intake sources from that.
+    """
+
+    name = "civis_cat"
+    version = __version__
+
+    def __init__(
+        self, database, schema="public", api_key=None, civis_kwargs={}, **kwargs
+    ):
+        """
+        Construct the Civis Catalog.
+
+        Parameters
+        ----------
+        database: str
+            The name of the database.
+        schema: str
+            The schema to list (defaults to "public").
+        api_key: str
+            An optional API key. If not given the env variable CIVIS_API_KEY
+            will be used.
+        civis_kwargs: dict
+            Optional kwargs to pass to the sources.
+        """
+        self._civis_kwargs = civis_kwargs
+        self._database = database
+        self._api_key = api_key
+        self._client = civis.APIClient(api_key)
+        self._dbschema = schema  # Don't shadow self._schema upstream
+        kwargs["ttl"] = kwargs["ttl"] or 100  # Bump TTL so as not to load too often.
+        super(CivisCatalog, self).__init__(**kwargs)
+
+    def _load(self):
+        """
+        Query the Civis database for all the tables in the schema
+        and construct catalog entries for them.
+        """
+        fut = civis.io.query_civis(
+            "SELECT table_name FROM information_schema.tables "
+            f"WHERE table_schema = '{self._dbschema}'",
+            database=self._database,
+            client=self._client,
+        )
+        res = fut.result()
+        tables = [row[0] for row in res.result_rows]
+        self._entries = {}
+        for table in tables:
+            name = f'"{self._dbschema}"."{table}"'
+            entry = LocalCatalogEntry(
+                name,
+                f"Civis table {table} from {self._database}",
+                CivisSource,
+                True,
+                args={
+                    "api_key": self._api_key,
+                    "civis_kwargs": self._civis_kwargs,
+                    "database": self._database,
+                    "table": name,
+                },
+                getenv=False,
+                getshell=False,
+            )
+            self._entries[table] = entry

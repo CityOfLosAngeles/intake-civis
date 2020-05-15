@@ -19,8 +19,13 @@ setup(
     packages=find_packages(),
     package_dir={"intake-civis": "intake-civis"},
     include_package_data=True,
-    install_requires=["civis-python", "intake"],
-    entry_points={"intake.drivers": ["civis = intake_civis.driver:CivisSource"]},
+    install_requires=["civis", "intake"],
+    entry_points={
+        "intake.drivers": [
+            "civis = intake_civis.driver:CivisSource",
+            "civis_cat = intake_civis.driver:CivisCatalog",
+        ]
+    },
     license="Apache-2.0 license",
     zip_safe=False,
     keywords="intake civis",
