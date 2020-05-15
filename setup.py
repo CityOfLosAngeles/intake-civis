@@ -1,6 +1,7 @@
 """The setup script."""
-from setuptools import setup, find_packages
 from os.path import exists
+
+from setuptools import find_packages, setup
 
 from intake_civis._version import __version__ as version
 
@@ -18,13 +19,8 @@ setup(
     packages=find_packages(),
     package_dir={"intake-civis": "intake-civis"},
     include_package_data=True,
-    install_requires=[
-        "civis-python",
-        "intake",
-    ],
-    entry_points={
-        "intake.drivers": ["civis = intake_civis.driver:CivisSource"],
-    },
+    install_requires=["civis-python", "intake"],
+    entry_points={"intake.drivers": ["civis = intake_civis.driver:CivisSource"]},
     license="Apache-2.0 license",
     zip_safe=False,
     keywords="intake civis",

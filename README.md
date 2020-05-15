@@ -16,3 +16,13 @@ You can install it by running the following in your terminal:
 ```bash
 pip install intake-civis
 ```
+
+## Usage
+
+### Geospatial support
+
+TODO
+
+### Ibis support
+
+TODO
