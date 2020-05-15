@@ -1,0 +1,16 @@
+metadata:
+  name: "Demo catalog"
+  version: 1
+sources:
+  # An entry representing an entire schema catalog
+  postgres:
+    driver: "civis_cat"
+    args:
+      database: "City of Los Angeles - Postgres"
+      schema: "transportation"
+  # An entry representing a single table
+  bike_trips:
+    driver: "civis"
+    args:
+      database: "City of Los Angeles - Postgres"
+      table: "transportation.bike_trips"

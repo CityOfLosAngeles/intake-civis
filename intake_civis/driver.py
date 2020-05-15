@@ -160,7 +160,9 @@ class CivisCatalog(Catalog):
         self._api_key = api_key
         self._client = civis.APIClient(api_key)
         self._dbschema = schema  # Don't shadow self._schema upstream
-        kwargs["ttl"] = kwargs["ttl"] or 100  # Bump TTL so as not to load too often.
+        kwargs["ttl"] = (
+            kwargs.get("ttl") or 100
+        )  # Bump TTL so as not to load too often.
         super(CivisCatalog, self).__init__(**kwargs)
 
     def _load(self):

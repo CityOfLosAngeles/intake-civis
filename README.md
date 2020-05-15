@@ -7,7 +7,6 @@ data source for data warehoused in the [Civis](https://www.civisanalytics.com) p
 ```
 civis-python
 intake
-pandas
 ```
 ## Installation
 
@@ -18,6 +17,25 @@ pip install intake-civis
 ```
 
 ## Usage
+
+You can specify Civis schemas and tables using a YAML intake catalog:
+
+```yaml
+sources:
+  # An entry representing a catalog for an entire schema.
+  postgres:
+    driver: "civis_cat"
+    args:
+      database: "City of Los Angeles - Postgres"
+      schema: "transporatation"
+  # An entry representing a single table
+  bike_trips:
+    driver: "civis"
+    args:
+      database: "City of Los Angeles - Postgres"
+      table: "transportation.bike_trips"
+```
+For more examples, see this [demo notebook](./examples/example.ipynb).
 
 ### Geospatial support
 
