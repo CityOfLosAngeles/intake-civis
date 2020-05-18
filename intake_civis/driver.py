@@ -1,6 +1,8 @@
 """
 Intake driver for a table in Civis.
 """
+import concurrent
+
 import civis
 from intake.catalog.base import Catalog
 from intake.catalog.local import LocalCatalogEntry
@@ -189,17 +191,28 @@ class CivisCatalog(Catalog):
         Query the Civis database for all the tables in the schema
         and construct catalog entries for them.
         """
-        fut = civis.io.query_civis(
+        fut1 = civis.io.query_civis(
             "SELECT table_name FROM information_schema.tables "
             f"WHERE table_schema = '{self._dbschema}'",
             database=self._database,
             client=self._client,
         )
-        res = fut.result()
-        tables = [row[0] for row in res.result_rows]
+        fut2 = civis.io.query_civis(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            f"WHERE table_schema = '{self._dbschema}' and udt_name = 'geometry'",
+            database=self._database,
+            client=self._client,
+        )
+        done, _ = concurrent.futures.wait((fut1, fut2))
+        assert fut1 in done and fut2 in done
+        res1 = fut1.result()
+        res2 = fut2.result()
+
+        tables = [row[0] for row in res1.result_rows]
         self._entries = {}
         for table in tables:
             name = f'"{self._dbschema}"."{table}"'
+            geometry = [r[1] for r in res2.result_rows if r[0] == table]
             entry = LocalCatalogEntry(
                 name,
                 f"Civis table {table} from {self._database}",
@@ -210,6 +223,7 @@ class CivisCatalog(Catalog):
                     "civis_kwargs": self._civis_kwargs,
                     "database": self._database,
                     "table": name,
+                    "geometry": geometry if len(geometry) else None,
                 },
                 getenv=False,
                 getshell=False,
