@@ -39,7 +39,16 @@ For more examples, see this [demo notebook](./examples/example.ipynb).
 
 ### Geospatial support
 
-TODO
+Both Redshift and Postgres support geospatial values.
+We can tell the source to read in a table/query as a GeoDataFrame
+by passing in a string or list of strings in the `geometry` argument.
+You can also pass in a GeoPandas-compatible `crs` argument to set the
+coordinate reference system for the GeoDataFrame.
+When more than one column is provided, the primary
+geometry column for the GeoDataFrame is assumed to be the first in the list.
+
+The `CivisCatalog` object attempts to automatically determine the geometry columns
+and coordinate reference systems from the database table metadata.
 
 ### Ibis support
 
