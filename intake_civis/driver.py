@@ -2,6 +2,7 @@
 Intake driver for a table in Civis.
 """
 import concurrent
+import warnings
 
 import civis
 from intake.catalog.base import Catalog
@@ -27,6 +28,7 @@ class CivisSource(base.DataSource):
         sql_expr=None,
         table=None,
         geometry=None,
+        crs=None,
         api_key=None,
         civis_kwargs={},
         metadata={},
@@ -46,6 +48,9 @@ class CivisSource(base.DataSource):
             sql_expr must be given.
         geometry: str or list of str
             A column or list of columns that should be interpreted as geometries.
+        crs: str or dict
+            A coordinate reference string of the format that GeoPandas can understand.
+            Only relevant if geometry columns are given.
         api_key: str
             An optional API key. If not given the env variable CIVIS_API_KEY
             will be used.
@@ -56,9 +61,13 @@ class CivisSource(base.DataSource):
         self._table = table
         self._sql_expr = sql_expr
         self._geom = [geometry] if isinstance(geometry, str) else geometry
+        self._crs = crs
         self._client = civis.APIClient(api_key)
         self._civis_kwargs = civis_kwargs
         self._dataframe = None
+
+        if crs and not geometry:
+            warnings.warn("A CRS was provided but no geometry columns")
 
         # Only support reading with pandas
         self._civis_kwargs["use_pandas"] = True
@@ -95,7 +104,7 @@ class CivisSource(base.DataSource):
                 for g in self._geom
             }
             self._dataframe = geopandas.GeoDataFrame(
-                df.assign(**geom_cols), geometry=self._geom[0],
+                df.assign(**geom_cols), geometry=self._geom[0], crs=self._crs
             )
         else:
             self._dataframe = df
@@ -159,7 +168,13 @@ class CivisCatalog(Catalog):
     version = __version__
 
     def __init__(
-        self, database, schema="public", api_key=None, civis_kwargs={}, **kwargs,
+        self,
+        database,
+        schema="public",
+        api_key=None,
+        civis_kwargs={},
+        has_geometry_column_table=None,
+        **kwargs,
     ):
         """
         Construct the Civis Catalog.
@@ -173,6 +188,10 @@ class CivisCatalog(Catalog):
         api_key: str
             An optional API key. If not given the env variable CIVIS_API_KEY
             will be used.
+        has_geometry_column_table: bool
+            Whether the database has a "geometry_columns" table, which can be used
+            to query for SRID information for a given column. Otherwise we try to
+            infer based on whether it is a postgres database.
         civis_kwargs: dict
             Optional kwargs to pass to the sources.
         """
@@ -180,6 +199,10 @@ class CivisCatalog(Catalog):
         self._database = database
         self._api_key = api_key
         self._client = civis.APIClient(api_key)
+        if has_geometry_column_table is not None:
+            self._has_geom = has_geometry_column_table
+        else:
+            self._has_geom = "redshift" not in self._database.lower()
         self._dbschema = schema  # Don't shadow self._schema upstream
         kwargs["ttl"] = (
             kwargs.get("ttl") or 100
@@ -197,12 +220,23 @@ class CivisCatalog(Catalog):
             database=self._database,
             client=self._client,
         )
-        fut2 = civis.io.query_civis(
-            "SELECT table_name, column_name FROM information_schema.columns "
-            f"WHERE table_schema = '{self._dbschema}' and udt_name = 'geometry'",
-            database=self._database,
-            client=self._client,
-        )
+        # If the database has a geometry_columns table, we prefer that as we can
+        # get the SRID for a column from it. Otherwise, we get the geometry columns
+        # from the information schema.
+        if self._has_geom:
+            fut2 = civis.io.query_civis(
+                "SELECT f_table_name, f_geometry_column, srid FROM geometry_columns "
+                f"WHERE f_table_schema = '{self._dbschema}'",
+                database=self._database,
+                client=self._client,
+            )
+        else:
+            fut2 = civis.io.query_civis(
+                "SELECT table_name, column_name FROM information_schema.columns "
+                f"WHERE table_schema = '{self._dbschema}' and udt_name = 'geometry'",
+                database=self._database,
+                client=self._client,
+            )
         done, _ = concurrent.futures.wait((fut1, fut2))
         assert fut1 in done and fut2 in done
         res1 = fut1.result()
@@ -213,6 +247,7 @@ class CivisCatalog(Catalog):
         for table in tables:
             name = f'"{self._dbschema}"."{table}"'
             geometry = [r[1] for r in res2.result_rows if r[0] == table]
+            srid = [r[2] for r in res2.result_rows if r[0] == table and self._has_geom]
             entry = LocalCatalogEntry(
                 name,
                 f"Civis table {table} from {self._database}",
@@ -224,6 +259,7 @@ class CivisCatalog(Catalog):
                     "database": self._database,
                     "table": name,
                     "geometry": geometry if len(geometry) else None,
+                    "crs": f"EPSG:{srid[0]}" if len(srid) else None,
                 },
                 getenv=False,
                 getshell=False,
