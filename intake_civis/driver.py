@@ -10,6 +10,8 @@ from intake.catalog.local import LocalCatalogEntry
 from intake.source import base
 
 from ._version import __version__
+from .alchemy import POSTGRES_KIND, REDSHIFT_KIND
+from .ibis import get_postgres_ibis_connection, get_redshift_ibis_connection
 
 
 class CivisSource(base.DataSource):
@@ -27,6 +29,7 @@ class CivisSource(base.DataSource):
         database,
         sql_expr=None,
         table=None,
+        schema=None,
         geometry=None,
         crs=None,
         api_key=None,
@@ -46,6 +49,8 @@ class CivisSource(base.DataSource):
         table: str
             The table name to pass to the database backend. Either this or
             sql_expr must be given.
+        schema:
+            The schema for the table. Defaults to "public".
         geometry: str or list of str
             A column or list of columns that should be interpreted as geometries.
         crs: str or dict
@@ -59,6 +64,7 @@ class CivisSource(base.DataSource):
         """
         self._database = database
         self._table = table
+        self._dbschema = schema
         self._sql_expr = sql_expr
         self._geom = [geometry] if isinstance(geometry, str) else geometry
         self._crs = crs
@@ -85,7 +91,12 @@ class CivisSource(base.DataSource):
         """
         # Load the data.
         if self._table:
-            df = civis.io.read_civis(self._table, self._database, **self._civis_kwargs,)
+            table = (
+                f'"{self._dbschema}"."{self._table}"'
+                if self._dbschema
+                else f"{self._table}"
+            )
+            df = civis.io.read_civis(table, self._database, **self._civis_kwargs,)
         elif self._sql_expr:
             df = civis.io.read_civis_sql(
                 self._sql_expr, self._database, **self._civis_kwargs,
@@ -138,17 +149,29 @@ class CivisSource(base.DataSource):
         """
         Return a lazy ibis expression into the Civis database.
         This should only work inside of the Civis platform.
-
-        Currently blocked on Civis providing the SQL hostname/URI to the db.
         """
-        raise NotImplementedError("Cannot produce an ibis expression")
+        if not self._table:
+            raise ValueError("Can only produce ibis expressions for full tables")
+
+        # Validate the database name and determine whether to connect
+        # to Redshift or Postgres.
+        hosts = self._client.remote_hosts.list()
+        db = next(h for h in hosts if h["name"] == self._database)
+        if db["type"] == REDSHIFT_KIND:
+            con = get_redshift_ibis_connection()
+        elif db["type"] == POSTGRES_KIND:
+            con = get_postgres_ibis_connection()
+        else:
+            raise Exception("Unexpected database type")
+
+        return con.table(self._table, schema=self._dbschema)
 
     def to_dask(self):
         """
         Return a lazy dask dataframe backed by the Civis database.
         This should only work inside of the Civis platform.
 
-        Currently blocked on Civis providing the SQL hostname/URI to the db.
+        TODO
         """
         raise NotImplementedError("Cannot produce a dask dataframe")
 
@@ -258,6 +281,7 @@ class CivisCatalog(Catalog):
                     "civis_kwargs": self._civis_kwargs,
                     "database": self._database,
                     "table": name,
+                    "schema": self._dbschema,
                     "geometry": geometry if len(geometry) else None,
                     "crs": f"EPSG:{srid[0]}" if len(srid) else None,
                 },
