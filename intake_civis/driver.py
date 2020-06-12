@@ -355,6 +355,18 @@ class CivisCatalog(Catalog):
 
 
 def open_redshift_catalog(api_key=None):
+    """
+    Top-level function to create a Redshift CivisCatalog object.
+
+    Parameters
+    ==========
+    api_key: Optional[str]
+        An API key. If not provided, uses the environment variable CIVIS_API_KEY.
+
+    Returns
+    =======
+    A CivisCatalog targeting Redshift.
+    """
     client = civis.APIClient(api_key)
     hosts = client.remote_hosts.list()
     try:
@@ -365,6 +377,18 @@ def open_redshift_catalog(api_key=None):
 
 
 def open_postgres_catalog(api_key=None):
+    """
+    Top-level function to create a PostgreSQL CivisCatalog object.
+
+    Parameters
+    ==========
+    api_key: Optional[str]
+        An API key. If not provided, uses the environment variable CIVIS_API_KEY.
+
+    Returns
+    =======
+    A CivisCatalog targeting PostgreSQL.
+    """
     client = civis.APIClient(api_key)
     hosts = client.remote_hosts.list()
     try:
