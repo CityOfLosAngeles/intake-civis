@@ -1,8 +1,7 @@
 from typing import Optional
 
-import sqlalchemy
-
 import ibis
+import sqlalchemy
 
 from .alchemy import POSTGRES_KIND, REDSHIFT_KIND, get_db_uri
 
