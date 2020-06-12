@@ -3,8 +3,8 @@ metadata:
   version: 1
 sources:
   # An entry representing an entire schema catalog
-  postgres:
-    driver: "civis_cat"
+  transportation:
+    driver: "civis_schema"
     args:
       database: "City of Los Angeles - Postgres"
       schema: "transportation"
@@ -14,3 +14,9 @@ sources:
     args:
       database: "City of Los Angeles - Postgres"
       table: "transportation.bike_trips"
+  # An entry representing a query
+  recent_bike_trips:
+    driver: "civis"
+    args:
+      database: "City of Los Angeles - Postgres"
+      sql_expr: "SELECT * FROM transportation.bike_trips WHERE start_datetime > '2020-05-01'"
