@@ -20,7 +20,10 @@ setup(
     package_dir={"intake-civis": "intake-civis"},
     include_package_data=True,
     install_requires=["civis", "intake"],
-    extras_require={"geospatial": ["geopandas", "shapely"]},
+    extras_require={
+        "geospatial": ["geopandas", "shapely"],
+        "ibis": ["ibis-framework", "sqlalchemy", "sqlalchemy-redshift"],
+    },
     entry_points={
         "intake.drivers": [
             "civis_cat = intake_civis.driver:CivisCatalog",

@@ -11,7 +11,6 @@ from intake.source import base
 
 from ._version import __version__
 from .alchemy import POSTGRES_KIND, REDSHIFT_KIND
-from .ibis import get_postgres_ibis_connection, get_redshift_ibis_connection
 
 
 class CivisSource(base.DataSource):
@@ -150,6 +149,8 @@ class CivisSource(base.DataSource):
         Return a lazy ibis expression into the Civis database.
         This should only work inside of the Civis platform.
         """
+        from .ibis import get_postgres_ibis_connection, get_redshift_ibis_connection
+
         if not self._table:
             raise ValueError("Can only produce ibis expressions for full tables")
 
