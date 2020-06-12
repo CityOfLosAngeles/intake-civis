@@ -23,8 +23,9 @@ setup(
     extras_require={"geospatial": ["geopandas", "shapely"]},
     entry_points={
         "intake.drivers": [
-            "civis = intake_civis.driver:CivisSource",
             "civis_cat = intake_civis.driver:CivisCatalog",
+            "civis_schema = intake_civis.driver:CivisSchema",
+            "civis = intake_civis.driver:CivisSource",
         ]
     },
     license="Apache-2.0 license",
