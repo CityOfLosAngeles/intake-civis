@@ -10,6 +10,8 @@ from intake.catalog.local import LocalCatalogEntry
 from intake.source import base
 
 from ._version import __version__
+from .alchemy import POSTGRES_KIND, REDSHIFT_KIND
+from .ibis import get_postgres_ibis_connection, get_redshift_ibis_connection
 
 
 class CivisSource(base.DataSource):
@@ -27,6 +29,7 @@ class CivisSource(base.DataSource):
         database,
         sql_expr=None,
         table=None,
+        schema=None,
         geometry=None,
         crs=None,
         api_key=None,
@@ -46,6 +49,8 @@ class CivisSource(base.DataSource):
         table: str
             The table name to pass to the database backend. Either this or
             sql_expr must be given.
+        schema:
+            The schema for the table. Defaults to "public".
         geometry: str or list of str
             A column or list of columns that should be interpreted as geometries.
         crs: str or dict
@@ -59,6 +64,7 @@ class CivisSource(base.DataSource):
         """
         self._database = database
         self._table = table
+        self._dbschema = schema
         self._sql_expr = sql_expr
         self._geom = [geometry] if isinstance(geometry, str) else geometry
         self._crs = crs
@@ -85,7 +91,12 @@ class CivisSource(base.DataSource):
         """
         # Load the data.
         if self._table:
-            df = civis.io.read_civis(self._table, self._database, **self._civis_kwargs,)
+            table = (
+                f'"{self._dbschema}"."{self._table}"'
+                if self._dbschema
+                else f"{self._table}"
+            )
+            df = civis.io.read_civis(table, self._database, **self._civis_kwargs,)
         elif self._sql_expr:
             df = civis.io.read_civis_sql(
                 self._sql_expr, self._database, **self._civis_kwargs,
@@ -138,17 +149,29 @@ class CivisSource(base.DataSource):
         """
         Return a lazy ibis expression into the Civis database.
         This should only work inside of the Civis platform.
-
-        Currently blocked on Civis providing the SQL hostname/URI to the db.
         """
-        raise NotImplementedError("Cannot produce an ibis expression")
+        if not self._table:
+            raise ValueError("Can only produce ibis expressions for full tables")
+
+        # Validate the database name and determine whether to connect
+        # to Redshift or Postgres.
+        hosts = self._client.remote_hosts.list()
+        db = next(h for h in hosts if h["name"] == self._database)
+        if db["type"] == REDSHIFT_KIND:
+            con = get_redshift_ibis_connection()
+        elif db["type"] == POSTGRES_KIND:
+            con = get_postgres_ibis_connection()
+        else:
+            raise Exception("Unexpected database type")
+
+        return con.table(self._table, schema=self._dbschema)
 
     def to_dask(self):
         """
         Return a lazy dask dataframe backed by the Civis database.
         This should only work inside of the Civis platform.
 
-        Currently blocked on Civis providing the SQL hostname/URI to the db.
+        TODO
         """
         raise NotImplementedError("Cannot produce a dask dataframe")
 
@@ -156,15 +179,15 @@ class CivisSource(base.DataSource):
         self._dataframe = None
 
 
-class CivisCatalog(Catalog):
+class CivisSchema(Catalog):
     """
-    Makes data sources out of known tables in a Civis database.
+    Makes data sources out of known schemas in a Civis database.
 
-    This queries the database for tables (optionally in a given schema)
-    and constructs intake sources from that.
+    This queries the database for tables in a given schema (defaulting to "public")
+    and constructs intake sources from those.
     """
 
-    name = "civis_cat"
+    name = "civis_schema"
     version = __version__
 
     def __init__(
@@ -177,7 +200,7 @@ class CivisCatalog(Catalog):
         **kwargs,
     ):
         """
-        Construct the Civis Catalog.
+        Construct the Civis Schema.
 
         Parameters
         ----------
@@ -207,7 +230,7 @@ class CivisCatalog(Catalog):
         kwargs["ttl"] = (
             kwargs.get("ttl") or 100
         )  # Bump TTL so as not to load too often.
-        super(CivisCatalog, self).__init__(**kwargs)
+        super(CivisSchema, self).__init__(**kwargs)
 
     def _load(self):
         """
@@ -245,11 +268,10 @@ class CivisCatalog(Catalog):
         tables = [row[0] for row in res1.result_rows]
         self._entries = {}
         for table in tables:
-            name = f'"{self._dbschema}"."{table}"'
             geometry = [r[1] for r in res2.result_rows if r[0] == table]
             srid = [r[2] for r in res2.result_rows if r[0] == table and self._has_geom]
             entry = LocalCatalogEntry(
-                name,
+                table,
                 f"Civis table {table} from {self._database}",
                 CivisSource,
                 True,
@@ -257,7 +279,8 @@ class CivisCatalog(Catalog):
                     "api_key": self._api_key,
                     "civis_kwargs": self._civis_kwargs,
                     "database": self._database,
-                    "table": name,
+                    "table": table,
+                    "schema": self._dbschema,
                     "geometry": geometry if len(geometry) else None,
                     "crs": f"EPSG:{srid[0]}" if len(srid) else None,
                 },
@@ -265,3 +288,111 @@ class CivisCatalog(Catalog):
                 getshell=False,
             )
             self._entries[table] = entry
+
+
+class CivisCatalog(Catalog):
+    """
+    Makes schema catalogs from a Civis database.
+
+    This queries the database for known schemas and constructs intake sources for them.
+    """
+
+    name = "civis_cat"
+    version = __version__
+
+    def __init__(
+        self, database, api_key=None, **kwargs,
+    ):
+        """
+        Construct a top-level catalog for a Civis database.
+
+        Parameters
+        ----------
+        database: str
+            The name of the database.
+        api_key: str
+            An optional API key. If not given the env variable CIVIS_API_KEY
+            will be used.
+        """
+        self._database = database
+        self._api_key = api_key
+        self._client = civis.APIClient(api_key)
+        kwargs["ttl"] = (
+            kwargs.get("ttl") or 100
+        )  # Bump TTL so as not to load too often.
+        super(CivisCatalog, self).__init__(**kwargs)
+
+    def _load(self):
+        """
+        Query the Civis database for all the schemas which have tables
+        and construct catalog entries for them.
+        """
+        fut = civis.io.query_civis(
+            "SELECT DISTINCT(table_schema) FROM information_schema.tables WHERE "
+            "table_schema != 'pg_catalog' AND table_schema != 'information_schema'",
+            database=self._database,
+            client=self._client,
+        )
+        res = fut.result()
+
+        schemas = [row[0] for row in res.result_rows]
+        self._entries = {}
+        for schema in schemas:
+            entry = LocalCatalogEntry(
+                schema,
+                f"Civis schema {schema} from {self._database}",
+                CivisSchema,
+                True,
+                args={
+                    "api_key": self._api_key,
+                    "database": self._database,
+                    "schema": schema,
+                },
+                getenv=False,
+                getshell=False,
+            )
+            self._entries[schema] = entry
+
+
+def open_redshift_catalog(api_key=None):
+    """
+    Top-level function to create a Redshift CivisCatalog object.
+
+    Parameters
+    ==========
+    api_key: Optional[str]
+        An API key. If not provided, uses the environment variable CIVIS_API_KEY.
+
+    Returns
+    =======
+    A CivisCatalog targeting Redshift.
+    """
+    client = civis.APIClient(api_key)
+    hosts = client.remote_hosts.list()
+    try:
+        db = next(h for h in hosts if h["type"] == REDSHIFT_KIND)
+    except StopIteration:
+        raise RuntimeError("Unable to find Redshift database")
+    return CivisCatalog(db["name"], api_key=api_key)
+
+
+def open_postgres_catalog(api_key=None):
+    """
+    Top-level function to create a PostgreSQL CivisCatalog object.
+
+    Parameters
+    ==========
+    api_key: Optional[str]
+        An API key. If not provided, uses the environment variable CIVIS_API_KEY.
+
+    Returns
+    =======
+    A CivisCatalog targeting PostgreSQL.
+    """
+    client = civis.APIClient(api_key)
+    hosts = client.remote_hosts.list()
+    try:
+        db = next(h for h in hosts if h["type"] == POSTGRES_KIND)
+    except StopIteration:
+        raise RuntimeError("Unable to find PostgreSQL database")
+    return CivisCatalog(db["name"], api_key=api_key)
