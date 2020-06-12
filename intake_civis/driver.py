@@ -304,7 +304,7 @@ class CivisCatalog(Catalog):
         self, database, api_key=None, **kwargs,
     ):
         """
-        Construct the Civis Schema.
+        Construct a top-level catalog for a Civis database.
 
         Parameters
         ----------
@@ -352,3 +352,23 @@ class CivisCatalog(Catalog):
                 getshell=False,
             )
             self._entries[schema] = entry
+
+
+def open_redshift_catalog(api_key=None):
+    client = civis.APIClient(api_key)
+    hosts = client.remote_hosts.list()
+    try:
+        db = next(h for h in hosts if h["type"] == REDSHIFT_KIND)
+    except StopIteration:
+        raise RuntimeError("Unable to find Redshift database")
+    return CivisCatalog(db["name"], api_key=api_key)
+
+
+def open_postgres_catalog(api_key=None):
+    client = civis.APIClient(api_key)
+    hosts = client.remote_hosts.list()
+    try:
+        db = next(h for h in hosts if h["type"] == POSTGRES_KIND)
+    except StopIteration:
+        raise RuntimeError("Unable to find PostgreSQL database")
+    return CivisCatalog(db["name"], api_key=api_key)
