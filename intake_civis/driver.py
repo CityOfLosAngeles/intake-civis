@@ -268,11 +268,10 @@ class CivisCatalog(Catalog):
         tables = [row[0] for row in res1.result_rows]
         self._entries = {}
         for table in tables:
-            name = f'"{self._dbschema}"."{table}"'
             geometry = [r[1] for r in res2.result_rows if r[0] == table]
             srid = [r[2] for r in res2.result_rows if r[0] == table and self._has_geom]
             entry = LocalCatalogEntry(
-                name,
+                table,
                 f"Civis table {table} from {self._database}",
                 CivisSource,
                 True,
@@ -280,7 +279,7 @@ class CivisCatalog(Catalog):
                     "api_key": self._api_key,
                     "civis_kwargs": self._civis_kwargs,
                     "database": self._database,
-                    "table": name,
+                    "table": table,
                     "schema": self._dbschema,
                     "geometry": geometry if len(geometry) else None,
                     "crs": f"EPSG:{srid[0]}" if len(srid) else None,
